@@ -5,70 +5,15 @@ structure A = Ast
 
 fun id a = a
 
-(* a opr b == b opr a *)
-fun is_commutative A.Plus = true
-  | is_commutative A.Times = true
-  | is_commutative A.Equal = true
-  | is_commutative A.NEqual = true
-  | is_commutative A.BAnd = true
-  | is_commutative A.BOr = true
-  | is_commutative _ = false (* by default things are not commutative *)
-
-(* (a opr b) opr c == a opr (b opr c) *)
-fun is_associative A.Plus = true
-  | is_associative A.Times = true
-  | is_associative A.Concat = true
-  | is_associative A.StrConcat = true
-  | is_associative A.BAnd = true
-  | is_associative A.BOr = true
-  | is_associative _ = false (* by default *)
-
-(* is the rhs an identity *)
-fun is_id_func_rhs A.Div _ (A.Int 1) 	= true
-  | is_id_func_rhs A.StrConcat _ (A.String "") = true
-  | is_id_func_rhs A.Concat _ (A.List {exps=[],...})  = true
-  | is_id_func_rhs A.BAnd _ (A.Bool true) = true
-  | is_id_func_rhs A.BOr _ (A.Bool false) = true
-  | is_id_func_rhs _ _ _ 		= false
-
-(* is the lhs an identity *)
-fun is_id_func_lhs A.Plus (A.Int 0) _ 	= true
-  | is_id_func_lhs A.Minus (A.Int 0) _ 	= true
-  | is_id_func_lhs A.Times (A.Int 1) _ 	= true
-  | is_id_func_lhs A.StrConcat (A.String "") _ = true
-  | is_id_func_lhs A.Concat (A.List {exps=[],...}) _  = true
-  | is_id_func_lhs A.Equal (A.Var {name=sym,...}) _ = (Symbol.toString sym) = "true"
-  | is_id_func_lhs A.Equal (A.Bool n) _ = n
-  | is_id_func_lhs A.NEqual (A.Bool n) _ = not n
-  | is_id_func_lhs _ _ _ 		= false
-
-(* Is this constant *)
-fun is_constant (A.Int _) = true
-  | is_constant (A.String _) = true
-  | is_constant (A.List _) = true
-  | is_constant (A.Bool _) = true
-  | is_constant _ = false
-
-(* f(f(x)) = f(x) *)
-fun is_idempotent A.BAnd = true
-  | is_idempotent A.BOr = true
-  | is_idempotent A.Mod = true
-  | is_idempotent _ = false
-
-(* f(f(x)) = x *)
-fun (*is_involution A.UMinus = true   
-  | is_involution A.BNot = true 
-  | *)is_involution _ = false
-
 (* has no sideeffects? *)
 fun is_pure node = true
 
 (* Check for identity functions *)
 fun id_func (node as (A.BinOp {attr,opr,lhs,rhs})) = 
-	if (is_id_func_lhs opr lhs rhs) then rhs
-	else if (is_id_func_rhs opr lhs rhs) then lhs
-	else if (is_commutative opr) andalso (is_id_func_lhs opr rhs lhs) then lhs
-	else if (is_commutative opr) andalso (is_id_func_rhs opr rhs lhs) then rhs
+	if (MathRules.is_id_func_lhs opr lhs rhs) then rhs
+	else if (MathRules.is_id_func_rhs opr lhs rhs) then lhs
+	else if (MathRules.is_commutative opr) andalso (MathRules.is_id_func_lhs opr rhs lhs) then lhs
+	else if (MathRules.is_commutative opr) andalso (MathRules.is_id_func_rhs opr rhs lhs) then rhs
 	else node
   | id_func node = node
 
@@ -89,7 +34,7 @@ fun special_fold_const (A.BinOp {opr=A.Times,lhs,rhs=A.Int 0,...}) = A.Int 0
 
 fun special_fold_const' 
 	(node as (A.BinOp {opr, ...})) = 
-	if is_commutative opr 
+	if MathRules.is_commutative opr 
 	then
 		(fn node as (A.BinOp {attr,opr,lhs,rhs}) => 
 			let 
@@ -173,7 +118,7 @@ fun fold_const (A.BinOp {opr=A.Plus,  lhs=A.Int lhs, rhs=A.Int rhs,...}) = A.Int
 
 (* Reorder tree *)
 fun comm_reorder_tree (node as (A.BinOp {attr, opr, lhs, rhs})) = 
-	if is_commutative opr andalso compare_node lhs rhs then commute_node node else node
+	if MathRules.is_commutative opr andalso compare_node lhs rhs then commute_node node else node
   | comm_reorder_tree node = node
 
 (*
@@ -222,7 +167,7 @@ fun assoc_reorder_tree (node as (A.BinOp {attr, opr=opra, lhs, rhs=(A.BinOp {att
 *)
 
 fun opt_associativity (node as (A.BinOp {attr, opr=opra, lhs, rhs=(A.BinOp {attr=rattr, opr=oprb, lhs=rlhs, rhs=rrhs})}))
-	= if opra = oprb andalso is_associative opra then
+	= if opra = oprb andalso MathRules.is_associative opra then
 		A.App {attr=[], exps=[
 			A.Var {attr=[], name=(Symbol.fromString "foldany"), symtab=ref (Symtab.symtab Symtab.top_level)},
 			A.Op {symbol=AstOps.opr_to_symbol opra,symtab=Symtab.top_level,attr=[]},
@@ -230,7 +175,7 @@ fun opt_associativity (node as (A.BinOp {attr, opr=opra, lhs, rhs=(A.BinOp {attr
 	else
 		node
   | opt_associativity (node as (A.BinOp {attr, opr=opra, lhs=(A.BinOp {attr=lattr, opr=oprb, lhs=llhs, rhs=lrhs}), rhs}))
-	= if opra = oprb andalso is_associative opra then
+	= if opra = oprb andalso MathRules.is_associative opra then
 		A.App {attr=[], exps=[
 			A.Var {attr=[], name=(Symbol.fromString "foldany"), symtab=ref (Symtab.symtab Symtab.top_level)},
 			A.Op {symbol=AstOps.opr_to_symbol opra,symtab=Symtab.top_level,attr=[]},

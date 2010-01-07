@@ -1,2 +1,3 @@
 optimiser/optimiser.sml
+optimiser/mathrules.sml
 optimiser/constfold.sml
