@@ -19,6 +19,7 @@ fun id_func (node as (A.BinOp {attr,opr,lhs,rhs})) =
 
 (* commute's a node *)
 fun commute_node (A.BinOp {attr,opr,lhs,rhs}) = (A.BinOp {attr=attr,opr=opr,lhs=rhs,rhs=lhs})
+  | commute_node _ = raise Fail "Can only commute BinOps"
 
 (* returns true if lhs == rhs *)
 fun equivilent_ast lhs rhs = (PrettyPrint.ppexp lhs) = (PrettyPrint.ppexp rhs)
@@ -63,43 +64,6 @@ fun inverse_element (node as (A.BinOp {opr=A.Div,lhs,rhs,...})) = (* x/x == 1 *)
   	if equivilent_ast lhs rhs then lhs else node
   | inverse_element x = x
 
-(* return true if the nodes should be swapped 
- * we want   App < Var < Int < BinOp
- *
- * This is wrong, we want Int < Var < App < BinOp assuming the tree recurses to the right, so int's are as close to the top as possible
-*)
-fun compare_bool false true = true
-  | compare_bool _ _ = false
-
-fun compare_list [] [] = false
-  | compare_list [] (rh::rt) = true
-  | compare_list (lh::lt) [] = false
-  | compare_list (lh::lt) (rh::rt) = if equivilent_ast lh rh then compare_list lt rt else compare_node lh rh
-and compare_node (A.BinOp _) _ = true
-  | compare_node _ (A.BinOp _) = false
- (*  ints *)
-  | compare_node (A.Int li) (A.Int ri) = li > ri
-  | compare_node (A.Int _) _ = true
-  | compare_node _ (A.Int _) = false
- (* Bools *)
-  | compare_node (A.Bool l) (A.Bool r) = compare_bool l r
-  | compare_node (A.Bool _) _ = true
-  | compare_node _ (A.Bool _) = false
- (* Lists *)
-  | compare_node (A.List {exps=li,...}) (A.List {exps=ri,...}) = compare_list li ri
-  | compare_node (A.List _) _ = true
-  | compare_node _ (A.List _) = false
- (* variables *)
-  | compare_node (A.Var l) (A.Var r) = (Symbol.hash (#name l)) > (Symbol.hash (#name r))
-  | compare_node (A.Var _) _ = true
- (* Op *)
-  | compare_node (A.Op l) (A.Op r) = (Symbol.hash (#symbol l)) > (Symbol.hash (#symbol r))
-  | compare_node (A.Op _) _ = true
-  | compare_node _ (A.Op _) = false
- (* Application -- TODO: Make sure we compare the function we're applying not just it's arguments*)
-  | compare_node (A.App {exps=lexps,...}) (A.App {exps=rexps,...}) = List.exists (fn (a,b) => compare_node a b ) (ListPair.zip (lexps,rexps))
- (* Failure *)
-  | compare_node lhs rhs = raise Fail ("Unknown comparison: " ^ (PrettyPrint.ppexp lhs) ^ " > " ^ (PrettyPrint.ppexp rhs))
 
 (* Constant Folding *)
 fun fold_const (A.BinOp {opr=A.Plus,  lhs=A.Int lhs, rhs=A.Int rhs,...}) = A.Int (lhs+rhs)
@@ -118,55 +82,11 @@ fun fold_const (A.BinOp {opr=A.Plus,  lhs=A.Int lhs, rhs=A.Int rhs,...}) = A.Int
 
 (* Reorder tree *)
 fun comm_reorder_tree (node as (A.BinOp {attr, opr, lhs, rhs})) = 
-	if MathRules.is_commutative opr andalso compare_node lhs rhs then commute_node node else node
+	if MathRules.is_commutative opr andalso (AstCompare.compare_node lhs rhs) = GREATER then commute_node node else node
   | comm_reorder_tree node = node
 
-(*
-(* (opr a (opr b c)) => (opr (opr a b) (opr c) *)
-(* FIXME: Figure out attrs *)
-fun rotate_left (node as (A.BinOp {attr, opr=opra, lhs, rhs=(A.BinOp {attr=rattr, opr=oprb, lhs=rlhs, rhs=rrhs})}))
-	= if opra = oprb then (A.BinOp {attr=rattr, opr=opra, lhs=fold_const (A.BinOp {attr=attr, opr=opra, lhs=lhs, rhs=rlhs}), rhs=rrhs}) else node
-  | rotate_left _ = raise Fail "Can't Happen"
-
-(* (opr (opr a b) c) => (opr a (opr b c))        right *)
-fun rotate_right (node as (A.BinOp {attr, opr=opra, lhs=(A.BinOp {attr=lattr, opr=oprb, lhs=llhs, rhs=lrhs}), rhs}))
-	= if opra = oprb then (A.BinOp {attr=lattr, opr=opra, lhs=llhs, rhs=fold_const (A.BinOp {attr=attr, opr=opra, lhs=lrhs, rhs=rhs})}) else node
-  | rotate_right _ = raise Fail "Can't Happen"
-
-(* (opr a (opr b c)) => (opr (opr a b) (opr c)   left
- *   if is_constant a and is_constant b
- *   if a>b and is_associative opr and is_commutative opr
- *   if is_constant c
- * (opr (opr a b) c) => (opr a (opr b c))        right
- *   if is_constant b and is_constant c
- *   if b>c and is_associative opr and is_commutative opr
- *   if is_constant a
- *)
-
-fun is_rotate_left (node as (A.BinOp {attr, opr=opra, lhs, rhs=(A.BinOp {attr=rattr, opr=oprb, lhs=rlhs, rhs=rrhs})}))
-  	= if opra = oprb andalso is_associative opra then
-		if is_constant lhs andalso is_constant rlhs then  true
-		else if compare_node lhs rlhs andalso is_commutative opra then true
-		else if is_constant rrhs then true
-		else false
-	else false
-
-fun is_rotate_right (node as (A.BinOp {attr, opr=opra, lhs=(A.BinOp {attr=lattr, opr=oprb, lhs=llhs, rhs=lrhs}), rhs}))
-  	= if opra = oprb andalso is_associative opra then
-		if is_constant lrhs andalso is_constant lrhs then true
-		else if compare_node lrhs rhs andalso is_commutative opra then true
-		else if is_constant llhs then true
-		else false
-	else false
-
-fun assoc_reorder_tree (node as (A.BinOp {attr, opr=opra, lhs, rhs=(A.BinOp {attr=rattr, opr=oprb, lhs=rlhs, rhs=rrhs})}))
-	= if is_rotate_left node then (rotate_left node) else node
-  | assoc_reorder_tree (node as (A.BinOp {attr, opr=opra, lhs=(A.BinOp {attr=lattr, opr=oprb, lhs=llhs, rhs=lrhs}), rhs}))
-  	= if is_rotate_right node then (rotate_right node) else node
-  | assoc_reorder_tree node = node
-*)
-
-fun opt_associativity (node as (A.BinOp {attr, opr=opra, lhs, rhs=(A.BinOp {attr=rattr, opr=oprb, lhs=rlhs, rhs=rrhs})}))
+(* flatten  a opr b opr c => foldany (op opr) [a,b,c] *)
+fun flatten_associativity (node as (A.BinOp {attr, opr=opra, lhs, rhs=(A.BinOp {attr=rattr, opr=oprb, lhs=rlhs, rhs=rrhs})}))
 	= if opra = oprb andalso MathRules.is_associative opra then
 		A.App {attr=[], exps=[
 			A.Var {attr=[], name=(Symbol.fromString "foldany"), symtab=ref (Symtab.symtab Symtab.top_level)},
@@ -174,7 +94,7 @@ fun opt_associativity (node as (A.BinOp {attr, opr=opra, lhs, rhs=(A.BinOp {attr
 			A.List {attr=[], exps=[lhs,rlhs,rrhs]}]}
 	else
 		node
-  | opt_associativity (node as (A.BinOp {attr, opr=opra, lhs=(A.BinOp {attr=lattr, opr=oprb, lhs=llhs, rhs=lrhs}), rhs}))
+  | flatten_associativity (node as (A.BinOp {attr, opr=opra, lhs=(A.BinOp {attr=lattr, opr=oprb, lhs=llhs, rhs=lrhs}), rhs}))
 	= if opra = oprb andalso MathRules.is_associative opra then
 		A.App {attr=[], exps=[
 			A.Var {attr=[], name=(Symbol.fromString "foldany"), symtab=ref (Symtab.symtab Symtab.top_level)},
@@ -182,7 +102,21 @@ fun opt_associativity (node as (A.BinOp {attr, opr=opra, lhs, rhs=(A.BinOp {attr
 			A.List {attr=[], exps=[llhs,llhs,rhs]}]}
 	else
 		node
-  | opt_associativity node = node
+  | flatten_associativity node = node
+
+(* sort foldany lists *)
+fun sort_foldany_lists (node as (A.App {exps=[
+		foldany as (A.Var {name,...}), 
+		f, 
+		A.List {exps, attr,...}],attr=attr2})) =
+	if name=(Symbol.fromString "foldany") then
+		(A.App {exps=[
+			foldany, 
+			f, 
+			A.List {exps=(ListMergeSort.sort (fn (a,b) => (AstCompare.compare_node a b) = GREATER) exps),attr=attr}],attr=attr2})
+	else
+		node
+  | sort_foldany_lists node = node
 
 (* Helper debug function *)
 fun debugDump name f x = 
@@ -205,7 +139,7 @@ fun expfun node = (
 	o (debugDump "special_fold_const" special_fold_const')
 	o (debugDump "inverse element" inverse_element)
 	o (debugDump "fold_const1" fold_const)
-(*        o (debugDump "assoc_reorder_tree" assoc_reorder_tree) *)
+	o (debugDump "flatten_associativity" flatten_associativity )
 	o (debugDump "fold_const2" fold_const)
 	o (debugDump "comm_reorder_tree" comm_reorder_tree)
 	) node

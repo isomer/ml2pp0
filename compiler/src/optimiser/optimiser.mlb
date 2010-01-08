@@ -1,3 +1,4 @@
 optimiser/optimiser.sml
 optimiser/mathrules.sml
+optimiser/astcompare.sml
 optimiser/constfold.sml
