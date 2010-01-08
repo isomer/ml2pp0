@@ -48,6 +48,7 @@ fun compare_node (A.BinOp {opr=lopr,lhs=llhs,rhs=lrhs,...}) (A.BinOp {opr=ropr,l
  (* variables *)
   | compare_node (A.Var l) (A.Var r) = Int.compare (Symbol.hash (#name l),Symbol.hash (#name r))
   | compare_node (A.Var _) _ = GREATER
+  | compare_node _ (A.Var _) = LESS
  (* Op *)
   | compare_node (A.Op l) (A.Op r) = Int.compare (Symbol.hash (#symbol l),Symbol.hash (#symbol r))
   | compare_node (A.Op _) _ = GREATER
