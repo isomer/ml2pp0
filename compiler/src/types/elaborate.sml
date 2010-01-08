@@ -360,7 +360,7 @@ struct
 			val env' = List.foldl (fn (a,e) => 
 						substinconstr_rhs a (fresh_poly ()) e) env vars
 
-			val _ = pv := ~1
+			(*val _ = pv := ~1*)
 		in
 			env'
 		end
