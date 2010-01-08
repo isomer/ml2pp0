@@ -102,6 +102,17 @@ fun flatten_associativity (node as (A.BinOp {attr, opr=opra, lhs, rhs=(A.BinOp {
 			A.List {attr=[], exps=[llhs,llhs,rhs]}]}
 	else
 		node
+  | flatten_associativity (node as (A.BinOp {attr, opr=opra, lhs=(A.App {exps=[
+		foldany as (A.Var {name,...}), 
+		oprb as (A.Op {symbol=sym, ...}), 
+		A.List {exps, attr=attr3,...}],attr=attr2}), rhs=rhs}))
+	= if (AstOps.opr_to_symbol opra) = sym andalso MathRules.is_associative opra then
+		A.App {attr=[], exps=[
+			A.Var {attr=[], name=(Symbol.fromString "foldany"), symtab=ref (Symtab.symtab Symtab.top_level)},
+			oprb,
+			A.List {attr=attr3, exps=(rhs::exps)}]}
+	else
+		node
   | flatten_associativity node = node
 
 (* sort foldany lists *)
@@ -139,6 +150,7 @@ fun expfun node = (
 	o (debugDump "special_fold_const" special_fold_const')
 	o (debugDump "inverse element" inverse_element)
 	o (debugDump "fold_const1" fold_const)
+	o (debugDump "sort_foldany_lists" sort_foldany_lists )
 	o (debugDump "flatten_associativity" flatten_associativity )
 	o (debugDump "fold_const2" fold_const)
 	o (debugDump "comm_reorder_tree" comm_reorder_tree)
