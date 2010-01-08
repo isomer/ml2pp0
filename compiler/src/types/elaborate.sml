@@ -10,6 +10,7 @@ struct
 	val tenv = ref [] : constraint_set ref
 	val venv = ref [] : constraint_set ref
 	val tv = ref 0;
+	val pv = ref ~1;
 
 	fun add_vconstr (l,r) = venv := (l,r) :: (!venv)
 	fun add_tconstr (l,r) = tenv := (l,r) :: (!tenv)
@@ -24,6 +25,7 @@ struct
 		- no, we shouldn't.  All tyvars can be top-level, silly.
 	*)
 	fun fresh_ty () = UVar (tv := !tv + 1; !tv)
+	fun fresh_poly () = PolyTy (pv := !pv + 1; !pv)
 
 	fun print_constr [] = ()
 	  | print_constr ((l,r)::t) = 
@@ -73,9 +75,16 @@ struct
 	fun constr_e (Var {attr,name,symtab}) =
 		let
 			val rt = (case Symtab.lookup_v symtab name of
-				(NONE,_) => raise 
-					Fail ("Unknown Var: " ^ Symbol.toString name)
+				(NONE,x) => 
+				let
+					val r' = fresh_ty ()
+					val _ = Symtab.insert_v symtab name (SOME r',x)
+				in
+					r'
+				end
 			  | (SOME t,_) => t)
+
+			val _ = print ("Var: " ^ Symbol.toString name ^ " has ty " ^ PrettyPrint.ppty rt ^ "\n")
 		in
 			rt
 		end
@@ -97,11 +106,11 @@ struct
 	  | constr_e (Fn {attr,match,symtab}) =
 	  	let
 			val (p,e) = hd match
+			val r0 = fresh_ty ()
 			val r1 = constr_p p
 			val r2 = constr_e e
-			val r0 = fresh_ty ()
 			val _ = constr symtab
-			val _ = add_vconstr (r0, ArrowTy (r1,r2))
+			val _ = add_vconstr (ArrowTy (r1,r2), r0)
 			val _ = app (fn (p',e') => 
 							let
 								val r3 = constr_p p'
@@ -159,22 +168,19 @@ struct
 	and constr' (ValDec v) =
 		(case (hd (#valBind v)) of
 			(ValBind (Wild,e)) => constr_e e
-		  | (ValBind (_,e)) => constr_e e
 		  | _ => raise Fail "unknown valdec bind\n")
 	  | constr' _ = fresh_ty ()
 
 	and constr symtab = 
 		let
-			val {venv,tenv} = !symtab
+			val {venv=ve,tenv} = !symtab
 
 			fun upd env NONE _ = 
 				raise Fail "[BUG] constr updates unknown symbol"
 			  | upd env (SOME s) (t,e) = 
 			  		Symtab.insert_v symtab s (t,e)
-			  | upd env _ _ = ()
 
-
-			val vkeys = Symbol.keys (!venv)
+			val vkeys = Symbol.keys (!ve)
 		in
 			List.app (fn (s,(t,SOME e)) =>
 				if s = 
@@ -182,44 +188,177 @@ struct
 				then () else
 				let
 					val r = fresh_ty ()
-					val _ = upd venv (Symbol.unhash s) (SOME r, SOME e)
+					val _ = upd ve (Symbol.unhash s) (SOME r, SOME e)
 					val t' = constr_e e
 				in
-					add_vconstr (r, t')
+					(add_vconstr (r, t');
+					 venv := unify (!venv);
+					 venv := generalise (!venv))
 				end
 			  | (s,(t,NONE)) => ()) vkeys
 		end
 
-(*
-	Symbol of symbol
-    | TyVar of ty
 
-	fun unify [] = []
-	  | unify ((TyVar tyS,TyVar (VarTy x)) :: rest) = 
-        if tyS = (TyVar x) then unify rest
-        else if occursin (TyVar x) tyS then
+	and substinty (UVar x1) tyT tyS =
+		let
+
+        	fun f tyS = 
+         	(case tyS of (ArrowTy(tyS1,tyS2)) => (ArrowTy(f tyS1,f tyS2))
+                    | (UVar n) => if n = x1 then tyT else (UVar n)
+					| x => x)
+     	in
+        	f tyS
+     	end
+	  | substinty (PolyTy x1) tyT tyS =
+	  	let
+	 		fun f tyS = 
+        	(case tyS of (ArrowTy(tyS1,tyS2)) => (ArrowTy(f tyS1,f tyS2))
+                    | (PolyTy n) => if n = x1 then tyT else (PolyTy n)
+					| x => x)
+		in
+        	f tyS
+		end
+	  | substinty _ _ _ = raise Fail "substinty: invalid argument"
+
+	and substinenv tyX tyT symtab = 
+		let
+			val {venv,tenv} = !symtab
+
+			val vkeys = Symbol.keys (!venv)
+		
+			fun upd env NONE _ = 
+				raise Fail "[BUG] constr updates unknown symbol"
+			  | upd env (SOME s) (t,e) = 
+			  		Symtab.insert_v symtab s (t,e)
+		in
+			(List.app (fn (s,(SOME t,e)) =>
+				upd venv (Symbol.unhash s) 
+					(SOME (substinty tyX tyT t),e)
+					| _ => ()
+				) vkeys;
+			(* print "\nSubst Env:\n";
+			 Symtab.print_scope symtab*) ())
+		end
+
+	and	substinprog (PolyTy tyX) tyT = Symtab.top_level 
+	  |	substinprog tyX tyT =
+		let
+			fun ef (f as Fn {symtab,...}) = 
+				(substinenv tyX tyT symtab; f)
+			  | ef (f as Let {symtab,...}) =
+			  	(substinenv tyX tyT symtab; f)
+			  | ef f = f
+
+			fun id x = x
+
+			(*val _ = print "\nTop Level Subst Env Before:\n"
+			val _ = Symtab.print_scope Symtab.top_level
+			*)
+			val _ = substinenv tyX tyT Symtab.top_level
+			(*
+			val _ = print "\nTop Level Subst Env After:\n"
+			val _ = Symtab.print_scope Symtab.top_level*)
+		in
+			ast_map_symtab {
+				decfun = id,
+				expfun = ef,
+				patfun = id,
+				bindfun = id,
+				tyfun = id,
+				oprfun = id,
+				clausesfun = id,
+				clausefun = id} Symtab.top_level
+		end
+
+
+	and substinconstr tyX tyT constr =
+		let
+			val _ = substinprog tyX tyT
+
+			val _ = print ("   * Type Sub: [" ^
+							PrettyPrint.ppty tyX ^ "/" ^
+							PrettyPrint.ppty tyT ^ "]\n")
+		
+
+			val constr' = map (fn (l,r) => (substinty tyX tyT l, substinty tyX tyT r)) constr
+		val _ = print_constr constr'
+		in
+			constr'
+		end
+
+	and substinconstr_rhs tyX tyT constr =
+		let
+			val _ = substinprog tyX tyT
+			
+			val _ = print ("   * RHS Type Sub: [" ^
+							PrettyPrint.ppty tyX ^ "/" ^
+							PrettyPrint.ppty tyT ^ "]\n")
+		
+
+			val constr' = map (fn (l,r) => (l, substinty tyX tyT r)) constr
+		val _ = print_constr constr'
+		in
+			constr'
+		end
+
+	(* FIXME incomplete *)
+	and occursin (UVar tyX) tyT =
+		let
+			fun oc tyT = (case tyT of
+				ArrowTy(tyT1,tyT2) => oc tyT1 orelse oc tyT2
+			  | UVar x => (x = tyX)
+			  | _ => false)
+     in
+        oc tyT
+     end
+	  | occursin _ _ = raise Fail "Non-UVar argument to occursin"
+
+	and unify [] = []
+      | unify ((tyS,UVar x) :: rest) =  
+		if ty_eq tyS (UVar x) then unify rest
+        else if occursin (UVar x) tyS then
            (raise (Fail "Circular constraints"))
         else 
-           (unify (substinconstr (TyVar x) tyS rest)) @ [(TyVar x,tyS)]
-     | unify ((TyVar x,tyT)::rest) =
-        if tyT = (TyVar x) then unify rest
-        else if occursin (TyVar x) tyT then
+           (unify (substinconstr (UVar x) tyS rest)) @ [(UVar x,tyS)]
+     | unify ((UVar x,tyT)::rest) =
+        if ty_eq tyT (UVar x) then unify rest
+        else if occursin (UVar x) tyT then
            (raise (Fail "Circular constraints"))
-        else (unify (substinconstr (TyVar x) tyT rest)) @ [(TyVar x,tyT)]
-     | unify ((TyArrow(tyS1,tyS2),TyArrow(tyT1,tyT2)) :: rest) =
+        else (unify (substinconstr (UVar x) tyT rest)) @ [(UVar x,tyT)]
+     | unify ((ArrowTy(tyS1,tyS2),ArrowTy(tyT1,tyT2)) :: rest) =
         unify ((tyS1,tyT1) :: (tyS2,tyT2) :: rest)
-     | unify ((TyNil, TyCon(_,TyName "list")) :: rest ) = unify rest 
-     | unify ((TyCon(_,TyName "list"), TyNil) :: rest ) = unify rest
-     | unify ((TyName a, TyPoly b) :: rest) =
-            (unify (substinconstr (TyPoly b) (TyName a) rest)) @ [(TyPoly b,TyName a)]
-     | unify ((TyCon (a, b), TyCon (c, d)) :: rest) = (Debug.print_dbg ("TYCON UNIFY: " ^ ppty a ^ " with " ^ ppty c ^ " and " ^ ppty b ^ " with " ^ ppty d ^ "\n");unify ((a,c)::(b,d)::rest))
-     | unify ((TyPoly a, TyName b) :: rest) = 
-            (unify (substinconstr (TyPoly a) (TyName b) rest)) @ [(TyPoly a,TyName b)]
-     | unify ((TyPoly a, TyPoly b) :: rest) = if a = b then unify rest else raise (Fail ("Unsolvable polymorphic unification! " ^ a ^ " <> " ^ b ^ "\n"))
-     | unify ((TyName a, TyName b) :: rest) =
-        if a = b then unify rest else (raise (Fail ("Unsolvable: " ^ a ^ " <> " ^ b)))
-     | unify ((tyS,tyT)::rest) = raise (Fail ("Unsolvable: " ^ ppty tyS ^ " <> " ^ ppty tyT))
-*)
+	 | unify ((PolyTy a, VarTy b) :: rest) = 
+            (unify (substinconstr (PolyTy a) (VarTy b) rest)) @ 
+				[(PolyTy a,VarTy b)]
+     | unify ((PolyTy a, PolyTy b) :: rest) = 
+	 		if a = b then unify rest 
+			else raise (Fail 
+				("Unsolvable polymorphic unification! " ^ 
+					PrettyPrint.ppty (PolyTy a) ^ " <> " ^ 
+					PrettyPrint.ppty (PolyTy b) ^ "\n"))
+     | unify ((VarTy (a,_), VarTy (b,_)) :: rest) =
+        if a = b then unify rest else (raise (Fail ("Unsolvable: " ^ Symbol.toString a ^ " <> " ^ Symbol.toString b)))
+     | unify ((tyS,tyT)::rest) = raise (Fail ("Unsolvable: " ^ PrettyPrint.ppty tyS ^ " <> " ^ PrettyPrint.ppty tyT))
+
+	and generalise env =
+		let
+			fun collect_tyvars (UVar s) = [UVar s]
+			  | collect_tyvars (ArrowTy (t1,t2)) =
+			  		collect_tyvars t1 @ collect_tyvars t2
+			  | collect_tyvars x = []
+
+			val vars : ty list = List.foldl (fn ((l,r),a) => 
+						collect_tyvars l @ collect_tyvars r @ a) [] env
+
+			val env' = List.foldl (fn (a,e) => 
+						substinconstr_rhs a (fresh_poly ()) e) env vars
+
+			val _ = pv := ~1
+		in
+			env'
+		end
+
+	fun unify_constraints () = unify (List.rev (!venv))
 
 end
 
