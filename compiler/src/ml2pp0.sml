@@ -2,8 +2,8 @@ structure Lml =
 struct
  fun initialise () =
   	let
-	(*	val _ = Optimiser.addPass ("nullOpt", fn x => ())
-		val _ = Optimiser.addPass ("constFold", ConstFold.optConstFold) *)
+		val _ = Optimiser.addPass ("nullOpt", fn x => ())
+(*		val _ = Optimiser.addPass ("constFold", ConstFold.optConstFold) *)
 	in
 		()
 	end
@@ -35,6 +35,9 @@ struct
 		val _ = Elaborate.print_constr (!Elaborate.venv) 
 		val _ = print "\n"
 		val _ = Elaborate.unify_constraints ()
+
+(*		val _ = Optimiser.runAllPasses ast' *)
+
 		val _ = print "SCOPE DUMP CONSTRAINED:\n"
 		val _ = Symtab.print_scope (Symtab.top_level)
 
