@@ -9,7 +9,7 @@ struct
 		  | Nonfix
 
 	datatype dec = 
-			ExpDec of ast 
+		    ExpDec of ast 
 		  | NullDec
 		  | LocalDec 
 		  | ValDec of {tyvars: ty list,valBind : bind list,recBind : bind list}
@@ -18,7 +18,7 @@ struct
 		  | KindDec of bind list
 		  | DatatypeDec of bind list
 		  | AbstypeDec
-	      | ExceptionDec 
+	          | ExceptionDec 
 		  | OpenDec 
 		  | FixDec of fixity * symbol list * (ty option * ast option) symtab ref
 		 and ast = Node of ast_node * ty option * ((ty option * ast option) symtab ref) * ast list 
