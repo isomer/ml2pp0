@@ -18,7 +18,9 @@ struct
 		("SyntaxDefunctionalise",
 			SyntaxDefunctionalise.translate ()),
 		("SyntaxCollapseDecs",
-			SyntaxCollapseDecs.translate ())
+			SyntaxCollapseDecs.translate ()),
+		("SyntaxClosureConv",
+			SyntaxClosureConv.translate ())
 	]
 
 	fun runAllPasses prog =
