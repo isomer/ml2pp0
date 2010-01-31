@@ -1,0 +1,23 @@
+#!/bin/sh
+
+MLC_HOME=/Users/gdpe/Documents/ml2pp0/compiler
+LIB=$MLC_HOME/lib
+BIN=$MLC_HOME/bin
+NAME=`echo $1 | cut -f 1 -d "."`
+LLVMAS="llvm-as"
+TMPPRE="/tmp/mlc.$RANDOM"
+LLC="llc -O3"
+CC=gcc
+LLVMOPT="cat"
+
+$BIN/ml2pp0 $1 && \
+cat $1.ll $LIB/decs.ll >> $TMPPRE.ll && \
+$LLVMAS $TMPPRE.ll && \
+$LLVMOPT $TMPPRE.bc > $TMPPRE.opt.bc && \
+$LLC $TMPPRE.opt.bc && \
+$CC -o $NAME $TMPPRE.opt.s $LIB/basis.o
+
+echo "% Compilation finished:"
+ls -lh $1.ll $TMPPRE.ll $TMPPRE.bc $TMPPRE.opt.bc $TMPPRE.opt.s
+echo "% Output file:"
+ls -lh $NAME

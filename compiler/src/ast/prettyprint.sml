@@ -54,10 +54,12 @@ struct
 	  | ppast TuplePat = "TuplePat"
 	  | ppast ListPat = "ListPat"
 	  | ppast UnitPat = "UnitPat"
+	  | ppast ConstPat = "ConstPat"
 	  | ppast (RecordPat true) = "RecordPat(...)"
 	  | ppast (RecordPat false) = "RecordPat"
 	  | ppast FieldPat = "FieldPat"
 	  | ppast WildPat = "_"
+	  | ppast _ = raise Fail "ppast: unmatched"
 	and ppbinds [] = ""
 	  | ppbinds [h] = ppbind h
 	  | ppbinds (h::t) = ppbind h ^ " \nand " ^ ppbinds t
@@ -90,7 +92,7 @@ struct
 	  | ppty (RecordTy l) = 
 	  	"{" ^ (String.concatWith ", " 
 			(map (fn (x,y) => ppexp x ^ " : " ^ ppty y) l)) ^ "}"
-	  | ppty UnitTy = "unit"
+	  | ppty UnitTy = "_unit"
 	  | ppty (TyConTy (t,[])) = ppty t
 	  | ppty (TyConTy (t,t')) = 
 	  	"(" ^ (String.concatWith "," (map ppty t')) ^ ") " ^ ppty t
@@ -103,8 +105,15 @@ struct
 	  | ppty RealTy = "real"
 	  | ppty CharTy = "char"
 	  | ppty WordTy = "word"
-	  | ppty (VectorTy (t,e)) = ppty t ^ " vector<" ^ ppexp e ^ ">"
+	  | ppty (DepTy (t,e)) = ppty t ^ "!" ^ ppexp' e
+	  | ppty (VectorTy t) = ppty t ^ " vector"
 	  | ppty _ = "<unpretty-printed ty>"
+	and ppexp' (Node (Int i, _, _, _)) = Int.toString i
+	  | ppexp' (Node (Var i, _, _, _)) = Symbol.toString i
+	  | ppexp' (Node (App,_,_,[t1,t2])) = ppexp' t1 ^ ppexp' t2
+	  | ppexp' (Node (Tuple,_,_,ch)) = "(" ^ String.concatWith "," (
+	  										map ppexp' ch) ^ ")"
+	  | ppexp' e = raise Fail ("Invalid dependent type term: " ^ ppexp e)
 	and ppopr BOr = "orelse"
 	  | ppopr BAnd = "andalso"
 	  | ppopr Plus = "+"

@@ -35,22 +35,24 @@ struct
 		val _ = Elaborate.print_constr (!Elaborate.venv) 
 		val _ = print "\n"
 		val _ = Elaborate.unify_constraints ()
-
 		val _ = print "SCOPE DUMP CONSTRAINED:\n"
 		val _ = Symtab.print_scope (Symtab.top_level)
 
+
+		val _ = Dependent.check (Symtab.top_level)
+
 (*		val _ = Optimiser.runAllPasses Symtab.top_level 
 		val _ = print "SCOPE DUMP (post-Optimiser):\n"
-		val _ = Symtab.print_scope (Symtab.top_level)
+		val _ = Symtab.print_scope (Symtab.top_level) *)
 		val l = Intermediate.translate Symtab.top_level
 		val _ = print "CODE DUMP:\n"
-		val code = Intermediate.emit l
+		val code = CodeGen.codegen l
 		val _ = print code 
 
 		val outfile = smlfile ^ ".ll"
 		val fp = TextIO.openOut outfile
 		val _ = TextIO.output (fp, code)
-		val _ = TextIO.closeOut fp*)
+		val _ = TextIO.closeOut fp
 	in
 		()
 	end
