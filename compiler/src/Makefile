@@ -44,6 +44,6 @@ lib/cvc3/cvc3.o: lib/cvc3/cvc3.cpp
 	make -C lib
 
 $(BIN)/ml2pp0: ml2pp0.mlb $(SOURCES) $(BIN)
-	mlton -default-ann 'allowFFI true' -output $(BIN)/ml2pp0 ml2pp0.mlb lib/cvc3/cvc3.o
+	mlton -default-ann 'allowFFI true' -link-opt -lstdc++ -output $(BIN)/ml2pp0 ml2pp0.mlb lib/cvc3/cvc3.o 
 
 
